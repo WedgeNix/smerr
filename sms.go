@@ -1,57 +1,39 @@
 package sms
 
 import (
+	"context"
+	"encoding/base64"
 	"fmt"
-	"net/smtp"
+	"io/ioutil"
+	"log"
 	"strconv"
 	"sync"
+
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/gmail/v1"
 )
 
 func toString(number uint64) string {
 	return strconv.FormatUint(number, 10)
 }
 
-func Verizon(number uint64) Gateway {
-	return Gateway(toString(number) + "@vtext.com")
+func Verizon(number uint64) Number {
+	return Number(toString(number) + "@vtext.com")
 }
 
-func ATT(number uint64) Gateway {
-	return Gateway(toString(number) + "@txt.att.net")
+func ATT(number uint64) Number {
+	return Number(toString(number) + "@mmc.att.net")
 }
 
-func TMobile(number uint64) Gateway {
-	return Gateway(toString(number) + "@tmomail.net")
-}
-
-func Sprint(number uint64) Gateway {
-	return Gateway(toString(number) + "@messaging.sprintpcs.com")
-}
-
-func MetroPCS(number uint64) Gateway {
-	return Gateway(toString(number) + "@mymetropcs.com")
-}
-
-func BoostMobile(number uint64) Gateway {
-	return Gateway(toString(number) + "@myboostmobile.com")
-}
-
-func VirginMobile(number uint64) Gateway {
-	return Gateway(toString(number) + "@vmobl.com")
-}
-
-func Cricket(number uint64) Gateway {
-	return Gateway(toString(number) + "@mms.mycricket.com")
-}
-
-func USCellular(number uint64) Gateway {
-	return Gateway(toString(number) + "@email.uscc.net")
+func TMobile(number uint64) Number {
+	return Number(toString(number) + "@tmomail.net")
 }
 
 var carriers = map[string][]string{
 	"7-11 Speakout (USA GSM)":              {"number@cingularme.com"},
 	"Alaska Communications Systems":        {"number@msg.acsalaska.com"},
 	"Alltel Wireless":                      {"number@message.alltel.com"},
-	"AT&T Mobility (formerly Cingular)":    {"number@mms.att.net", "number@txt.att.net", "number@mmode.com", "number@cingularme.com"},
+	"AT&T Mobility (formerly Cingular)":    {"number@mmc.att.net", "number@txt.att.net", "number@mmode.com", "number@cingularme.com"},
 	"Bell Mobility & Solo Mobile (Canada)": {"number@txt.bell.ca"},
 	"Boost Mobile":                         {"number@myboostmobile.com"},
 	"Cellular One (Dobson)":                {"number@mobile.celloneusa.com"},
@@ -60,61 +42,61 @@ var carriers = map[string][]string{
 	"Cingular (GoPhone prepaid)":           {"number@cingularme.com"},
 	"Claro (Nicaragua)":                    {"number@ideasclaro-ca.com"},
 	"Comcel":                               {"number@comcel.com.co"},
-	"Cricket":                              {"number@mms.mycricket.com"},
-	"CTI":                                  {"number@sms.ctimovil.com.ar"},
+	"Cricket":                              {"number@mmc.mycricket.com"},
+	"CTI":                                  {"number@smc.ctimovil.com.ar"},
 	"Emtel (Mauritius)":                    {"number@emtelworld.net"},
 	"Fido (Canada)":                        {"number@fido.ca"},
 	"Globalstar":                           {"number@msg.globalstarusa.com"},
-	"Helio":                                {"number@messaging.sprintpcs.com"},
+	"Helio":                                {"number@messaging.sprintpcc.com"},
 	"Illinois Valley Cellular":             {"number@ivctext.com"},
 	"IT Company Australia":                 {"number@itcompany.com.au"},
 	"Iridium (satellite)":                  {"number@msg.iridium.com"},
-	"Meteor (Ireland)":                     {"number@sms.mymeteor.ie"},
-	"MetroPCS":                             {"number@mymetropcs.com"},
+	"Meteor (Ireland)":                     {"number@smc.mymeteor.ie"},
+	"MetroPCS":                             {"number@mymetropcc.com"},
 	"Movicom":                              {"number@movimensaje.com.ar"},
 	"Movistar (Colombia)":                  {"number@movistar.com.co"},
-	"MTN (South Africa)":                   {"number@sms.co.za"},
+	"MTN (South Africa)":                   {"number@smc.co.za"},
 	"MTS (Canada)":                         {"number@text.mtsmobility.com"},
 	"Nextel (Argentina)":                   {"TwoWay.11number@nextel.net.ar"},
 	"Personal (Argentina)":                 {"11number@personal-net.com.ar"},
 	"Plus GSM (Poland)":                    {"+48number@text.plusgsm.pl"},
 	"President's Choice (Canada)":          {"number@txt.bell.ca"},
 	"Qwest":                      {"number@qwestmp.com"},
-	"Rogers (Canada)":            {"number@pcs.rogers.com"},
-	"Sasktel (Canada)":           {"number@sms.sasktel.com"},
-	"Setar Mobile email (Aruba)": {"297+number@mas.aw"},
-	"SMSGlobal":                  {"number@sms.smsglobal.com.au"},
-	"Sprint (PCS)":               {"number@messaging.sprintpcs.com", "number@pm.sprint.com"},
+	"Rogers (Canada)":            {"number@pcc.rogerc.com"},
+	"Sasktel (Canada)":           {"number@smc.sasktel.com"},
+	"Setar Mobile email (Aruba)": {"297+number@mac.aw"},
+	"SMSGlobal":                  {"number@smc.smsglobal.com.au"},
+	"Sprint (PCS)":               {"number@messaging.sprintpcc.com", "number@pm.sprint.com"},
 	"Sprint (Nextel)":            {"number@page.nextel.com", "number@messaging.nextel.com"},
-	"Suncom":                     {"number@tms.suncom.com"},
+	"Suncom":                     {"number@tmc.suncom.com"},
 	"T-Mobile":                   {"number@tmomail.net"},
-	"T-Mobile (Austria)":         {"number@sms.t-mobile.at"},
-	"Telus Mobility (Canada)":    {"number@msg.telus.com"},
-	"Tigo (Formerly Ola)":        {"number@sms.tigo.com.co"},
+	"T-Mobile (Austria)":         {"number@smc.t-mobile.at"},
+	"Telus Mobility (Canada)":    {"number@msg.teluc.com"},
+	"Tigo (Formerly Ola)":        {"number@smc.tigo.com.co"},
 	"Tracfone (prepaid)":         {"number@cingularme.com", "number@tmomail.net", "number@vtext.com", "number@email.uscc.net", "number@message.alltel.com"},
 	"Unicel":                     {"number@utext.com"},
-	"US Cellular":                {"number@email.uscc.net", "number@mms.uscc.net"},
+	"US Cellular":                {"number@email.uscc.net", "number@mmc.uscc.net"},
 	"Verizon":                    {"number@vtext.com", "number@vzwpix.com"},
 	"Virgin Mobile (Canada)":     {"number@vmobile.ca"},
 	"Virgin Mobile (USA)":        {"number@vmobl.com"},
 	"Vodacom (South Africa)":     {"number@voda.co.za"},
-	"YCC": {"number@sms.ycc.ru"},
-	"B2sms (International)":         {"number@b2sms.com"},
+	"YCC": {"number@smc.ycc.ru"},
+	"B2sms (International)":         {"number@b2smc.com"},
 	"CardBoardFish (International)": {"number@username.etexting.com"},
-	"Club4sms (Pakistan)":           {"number@club4sms.com"},
+	"Club4sms (Pakistan)":           {"number@club4smc.com"},
 	"Esendex (AU, ES, FR, IE, UK)":  {"number@esendex.net"},
-	"Ipipi.com":                     {"number@opensms.ipipi.com"},
+	"Ipipi.com":                     {"number@opensmc.ipipi.com"},
 	"Kapow! SMS Gateway":            {"number@kapow.co.uk"},
-	"Letxt (International)":         {"number@sms.letxt.com.au"},
+	"Letxt (International)":         {"number@smc.letxt.com.au"},
 	"Me2mobile (Australia)":         {"number@me2mobile.com"},
 	"Mobe.Net":                      {"number@mobe.net"},
 	"pktpix.com (International)":    {"number@pktpix.com"},
 	"Red Oxygen (International)":    {"number@redoxygen.net"},
 	"Soprano (Australia)":           {"number@soprano.com.au"},
-	"TellusTalk":                    {"number@esms.nu"},
+	"TellusTalk":                    {"number@esmc.nu"},
 	"ToText.net":                    {"number@totext.net"},
 	"Txtlocal.com":                  {"number@txtlocal.co.uk"},
-	"ViaNett":                       {"number@sms.vianett.no"},
+	"ViaNett":                       {"number@smc.vianett.no"},
 	"Webtext":                       {"number@webtext.com"},
 	"ABTXT.COM":                     {"number@abtxt.com"},
 	"MOBILEMAIL.RU":                 {"number@mobilemail.ru"},
@@ -123,86 +105,98 @@ var carriers = map[string][]string{
 var (
 	Email string
 
-	Pass string
-
-	Port = 25
-
-	Host string
-
-	sms SMS
+	s sms
 )
 
-// Gateway is an SMS email wrapper for a phone number.
-type Gateway string
+// Number is an SMS email wrapper for a phone number.
+type Number string
 
-// Errors stores a mapping of gateways to a specific error.
-type Errors map[Gateway]error
-
-// Gateways pulls a slice of numbers from the map.
-func (e Errors) Gateways() []Gateway {
-	var gates []Gateway
-	for gate := range e {
-		gates = append(gates, gate)
-	}
-	return gates
+// Text sends a text message to the phone number.
+func (n Number) Text(v interface{}) error {
+	return s.email(string(n), fmt.Sprint(v))
 }
 
-// SMS controls repeated SMS error messaging.
-type SMS struct {
-	once sync.Once
-
+type sms struct {
 	Email string
-	Pass  string
-	Host  string
-	Port  int
+
+	once sync.Once
+	srv  *gmail.Service
 }
 
-func (s *SMS) prep() {
+func (s *sms) prep() {
 	if len(s.Email) == 0 {
 		s.Email = Email
 	}
-	if len(s.Pass) == 0 {
-		s.Pass = Pass
+
+	//
+	//
+
+	ctx := context.Background()
+
+	b, err := ioutil.ReadFile("credentials/client_secret.json")
+	if err != nil {
+		log.Fatalf("Unable to read client secret file: %v", err)
 	}
-	if len(s.Host) == 0 {
-		s.Host = Host
+
+	cfg, err := google.ConfigFromJSON(b, gmail.GmailSendScope)
+	if err != nil {
+		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
-	if s.Port == 0 {
-		s.Port = Port
+
+	client := getClient(ctx, cfg)
+
+	s.srv, err = gmail.New(client)
+	if err != nil {
+		log.Fatalf("Unable to retrieve gmail Client %v", err)
 	}
+
+	//
+	//
+
+	// key, err := ioutil.ReadFile("credentials/client_secret.json")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// cfg, err := google.ConfigFromJSON(key, gmail.GmailSendScope, gmail.GmailLabelsScope)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// s.srv, err = gmail.New(getClient(context.Background(), cfg))
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 }
 
-// Text sends a text message to all the numbers.
-func Text(v interface{}, g ...Gateway) Errors {
-	return sms.Text(v, g...)
-}
-
-// Text sends a text message to all the numbers.
-func (s *SMS) Text(v interface{}, g ...Gateway) Errors {
+func (s *sms) email(to, body string) error {
 	s.once.Do(s.prep)
 
-	auth := smtp.PlainAuth(
-		"",
-		s.Email,
-		s.Pass,
-		s.Host,
+	boundary := "__Server_Mailing__"
+
+	rawMsg := []byte(
+		`Content-Type: multipart/mixed; boundary=` + boundary + `
+MIME-Version: 1.0
+to: ` + to + `
+from: ` + s.Email + `
+subject: 
+
+--` + boundary + `
+Content-Type: text/html; charset="UTF-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+
+` + body + `
+
+--` + boundary + `--`,
 	)
 
-	errs := Errors{}
+	var msg gmail.Message
+	msg.Raw = base64.URLEncoding.EncodeToString(rawMsg)
 
-	for _, gate := range g {
-		email := string(gate)
-
-		if err := smtp.SendMail(
-			s.Host+":"+strconv.Itoa(s.Port),
-			auth,
-			s.Email,
-			[]string{email},
-			[]byte(fmt.Sprintf(`From: %s\nTo: %s\n\n%s\n`, s.Email, email, fmt.Sprint(v))),
-		); err != nil {
-			errs[gate] = err
-		}
+	if _, err := s.srv.Users.Messages.Send("me", &msg).Do(); err != nil {
+		return err
 	}
 
-	return errs
+	return nil
 }
