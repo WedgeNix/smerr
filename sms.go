@@ -25,6 +25,10 @@ func ATT(number uint64) Number {
 	return Number(toString(number) + "@mmc.att.net")
 }
 
+func Sprint(number uint64) Number {
+	return Number(toString(number) + "@messaging.sprintpcc.com")
+}
+
 func TMobile(number uint64) Number {
 	return Number(toString(number) + "@tmomail.net")
 }
@@ -105,8 +109,33 @@ var carriers = map[string][]string{
 var (
 	Email string
 
+	Folder = "sms_credentials"
+
 	s sms
 )
+
+// Errors maps numbers to errors.
+type Errors map[Number]error
+
+// Numbers gathers numbers only from the errors.
+func (e Errors) Numbers() []Number {
+	var nums []Number
+	for num := range e {
+		nums = append(nums, num)
+	}
+	return nums
+}
+
+// Text sends a text message to the phone numbers.
+func Text(v interface{}, numbers ...Number) Errors {
+	errs := Errors{}
+	for _, num := range numbers {
+		if err := num.Text(v); err != nil {
+			errs[num] = err
+		}
+	}
+	return errs
+}
 
 // Number is an SMS email wrapper for a phone number.
 type Number string
@@ -128,45 +157,20 @@ func (s *sms) prep() {
 		s.Email = Email
 	}
 
-	//
-	//
-
-	ctx := context.Background()
-
-	b, err := ioutil.ReadFile("credentials/client_secret.json")
+	key, err := ioutil.ReadFile(Folder + "/client_secret.json")
 	if err != nil {
 		log.Fatalf("Unable to read client secret file: %v", err)
 	}
 
-	cfg, err := google.ConfigFromJSON(b, gmail.GmailSendScope)
+	cfg, err := google.ConfigFromJSON(key, gmail.GmailSendScope)
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
 
-	client := getClient(ctx, cfg)
-
-	s.srv, err = gmail.New(client)
+	s.srv, err = gmail.New(getClient(context.Background(), cfg))
 	if err != nil {
 		log.Fatalf("Unable to retrieve gmail Client %v", err)
 	}
-
-	//
-	//
-
-	// key, err := ioutil.ReadFile("credentials/client_secret.json")
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// cfg, err := google.ConfigFromJSON(key, gmail.GmailSendScope, gmail.GmailLabelsScope)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// s.srv, err = gmail.New(getClient(context.Background(), cfg))
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
 }
 
 func (s *sms) email(to, body string) error {

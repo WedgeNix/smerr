@@ -99,11 +99,9 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const (
-	cacheFile = "credentials/stuff.json"
-)
-
 func getClient(ctx context.Context, config *oauth2.Config) *http.Client {
+	cacheFile := Folder + "/token.json"
+
 	tok, err := tokenFromFile(cacheFile)
 	if err != nil {
 		tok = getTokenFromWeb(config)
